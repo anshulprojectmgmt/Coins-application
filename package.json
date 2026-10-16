@@ -6,10 +6,13 @@
   "scripts": {
     "dev": "tsx server.ts",
     "build": "vite build",
-    "start": "node server.ts",
+    "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test": "tsx --test tests/*.test.ts",
+    "demo": "tsx scripts/demo.ts",
+    "test:ui": "npm run build && tsx tests/browser.smoke.ts"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -21,6 +24,7 @@
     "cors": "^2.8.6",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
+    "express-rate-limit": "^8.7.1",
     "jsonwebtoken": "^9.0.3",
     "lucide-react": "^0.546.0",
     "mongoose": "^9.4.1",
@@ -28,16 +32,22 @@
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
     "react-router-dom": "^7.14.0",
+    "sharp": "^0.35.5",
     "tailwind-merge": "^3.5.0",
+    "tsx": "^4.23.15",
     "vite": "^6.2.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "mongodb-memory-server": "^11.3.0",
+    "playwright": "^1.64.1",
     "tailwindcss": "^4.1.14",
-    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -258,7 +258,7 @@ export function Dashboard() {
           <div className="bg-black/20 rounded-full p-1">
             <PlusCircle className="w-5 h-5" />
           </div>
-          <span className="font-headline text-xl">Earn</span>
+          <span className="font-headline text-xl">Missions</span>
         </Link>
         <Link
           to="/spend"

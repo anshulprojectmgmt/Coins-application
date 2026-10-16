@@ -171,8 +171,8 @@ export function Surprise() {
                     className="absolute flex -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-1"
                     style={{ left: `${node.x}%`, top: `${node.y}%` }}
                     initial={{ scale: 0.8, opacity: 0 }}
-                    animate={{ scale: isFinal && isUnlocked ? [1, 1.18, 1] : 1, y: isFinal && isUnlocked ? [0, -8, 0] : 0, opacity: 1 }}
-                    transition={isFinal && isUnlocked ? { duration: 0.9, repeat: Infinity, ease: 'easeInOut' } : { delay: index * 0.08 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: index * 0.08 }}
                   >
                     {isFinal ? (
                       <div className="relative">
@@ -195,6 +195,7 @@ export function Surprise() {
                         )}
                         <button
                           type="button"
+                          aria-label={claiming ? 'Opening surprise' : 'Open surprise'}
                           onClick={openGift}
                           disabled={!isUnlocked || claiming}
                           className={cn(

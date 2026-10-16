@@ -1,271 +1,161 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Gamepad2, Plus, ChevronDown, Timer, Clock3, Coins } from 'lucide-react';
-import { motion } from 'motion/react';
-import { AuthContext } from '../App.tsx';
-import { Activity } from '../types.ts';
-import { cn } from '../lib/utils.ts';
-import {
-  readActivityFormPreferences,
-  saveActivityFormPreferences
-} from '../lib/activityFormPreferences.ts';
+import React, { useContext, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { Gamepad2 } from "lucide-react";
+import { AuthContext } from "../App.tsx";
+import { Activity } from "../types.ts";
+import { api } from "../lib/api.ts";
 
-const DEFAULT_GAME_OPTIONS = [
-  'Space Explorer',
-  'Math Match',
-  'Puzzle Quest',
-  'Word Wizard'
+const defaults = [
+  "Space Explorer",
+  "Math Match",
+  "Puzzle Quest",
+  "Word Wizard",
 ];
-
-const SPEND_FORM_DEFAULTS = {
-  duration: 20,
-  ratio: 1,
-};
-
 export function Spend() {
   const { user, token, updateUser } = useContext(AuthContext)!;
   const navigate = useNavigate();
-  const userId = user?._id || 'guest';
-  const [selectedGame, setSelectedGame] = useState(DEFAULT_GAME_OPTIONS[0]);
-  const [customName, setCustomName] = useState('');
-  const [duration, setDuration] = useState(() => (
-    readActivityFormPreferences('spend', userId, SPEND_FORM_DEFAULTS).duration
-  ));
-  const [ratio, setRatio] = useState(() => (
-    readActivityFormPreferences('spend', userId, SPEND_FORM_DEFAULTS).ratio
-  ));
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [recentPlays, setRecentPlays] = useState<Activity[]>([]);
-
-  const allOptions = [...DEFAULT_GAME_OPTIONS, ...(user?.custom_play_activities || []), 'Custom Activity...'];
-
+  const [name, setName] = useState(defaults[0]);
+  const [minutes, setMinutes] = useState(10);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [recent, setRecent] = useState<Activity[]>([]);
+  const requestId = useRef(crypto.randomUUID());
   useEffect(() => {
-    fetch('/api/activities/recent/spend', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => setRecentPlays(data));
+    api<Activity[]>("/api/activities/recent/spend", token)
+      .then(setRecent)
+      .catch((e) => setError(e.message));
   }, [token]);
-
   useEffect(() => {
-    saveActivityFormPreferences('spend', userId, { duration, ratio });
-  }, [duration, ratio, userId]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
+    requestId.current = crypto.randomUUID();
+  }, [name, minutes]);
+  const cost = minutes * (user?.min_per_coin_ratio || 1);
+  async function submit(e: React.FormEvent) {
     e.preventDefault();
-    setLoading(true);
-    setError(null);
-
-    const isCustomInput = selectedGame === 'Custom Activity...';
-    const activityName = isCustomInput ? customName : selectedGame;
-    const pointsImpact = -Math.round(duration * ratio);
-    const previousTotalCoins = Math.round(user?.total_coins || 0);
-
-    if (user!.total_coins + pointsImpact < 0) {
-      setError('Points are less to spend in the chest! Earn more first.');
-      setLoading(false);
-      return;
-    }
-
+    if (busy) return;
+    setBusy(true);
+    setError("");
     try {
-      const res = await fetch('/api/activities', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
+      const activity = await api<Activity>("/api/activities", token, {
+        method: "POST",
         body: JSON.stringify({
-          type: 'spend',
-          activityName,
-          durationMinutes: duration,
-          pointsImpact,
-          isCustom: isCustomInput
+          type: "spend",
+          activityName: name,
+          durationMinutes: minutes,
+          requestId: requestId.current,
         }),
       });
-
-      if (res.ok) {
-        // Refetch profile to get updated coins and custom activities
-        const profileRes = await fetch('/api/profile', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const profileData = await profileRes.json();
-        updateUser(profileData);
-        
-        navigate('/', {
-          state: {
-            pointsDelta: pointsImpact,
-            previousTotalCoins,
-            animationKey: Date.now(),
-          },
-        });
-      }
-    } catch (err) {
-      console.error(err);
+      const profile = await api("/api/profile", token);
+      updateUser(profile);
+      navigate("/", {
+        state: {
+          pointsDelta: activity.pointsImpact,
+          previousTotalCoins: profile.total_coins - activity.pointsImpact,
+          animationKey: Date.now(),
+        },
+      });
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
-      setLoading(false);
+      setBusy(false);
     }
-  };
-
+  }
   return (
-    <div className="pt-8 space-y-8">
-      {/* Hero Header */}
-      <div className="mb-8">
-        <h1 className="text-4xl font-extrabold tracking-tight text-primary mb-2 font-headline uppercase">Spend</h1>
-        <p className="text-on-surface-variant font-medium">Choose a reward and spend your points!</p>
+    <div className="pt-6 space-y-6">
+      <header>
+        <Gamepad2 className="text-primary mb-3" size={32} />
+        <h2 className="font-headline text-3xl font-black">Choose your fun</h2>
+        <p className="mt-2 text-on-surface-variant">
+          You’ve earned it. Pick a reward from your parent’s list.
+        </p>
+      </header>
+      <div className="rounded-2xl bg-primary text-on-primary p-5">
+        <p className="text-sm">In your coin chest</p>
+        <p className="text-4xl font-black mt-2">{user?.total_coins || 0}</p>
       </div>
-
-      {/* Form */}
-      <section className="bg-surface-container-low rounded-xl p-6 mb-8 shadow-sm">
-        <div className="flex items-center gap-2 mb-6">
-          <Gamepad2 className="w-6 h-6 text-tertiary fill-current" />
-          <h2 className="text-xl font-bold text-on-surface font-headline">Select a Game</h2>
-        </div>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {error && (
-            <motion.div 
-              initial={{ opacity: 0, scale: 0.95 }}
-              animate={{ opacity: 1, scale: 1 }}
-              className="bg-error/10 text-error text-sm p-4 rounded-xl font-bold border border-error/20"
-            >
-              {error}
-            </motion.div>
-          )}
-          <div className="space-y-2">
-            <label className="block text-sm font-bold text-on-surface-variant px-1">Choose Game</label>
-            <div className="relative">
-              <select 
-                value={selectedGame}
-                onChange={(e) => setSelectedGame(e.target.value)}
-                className="w-full h-14 pl-4 pr-10 bg-surface-container-lowest border-none rounded-default text-on-surface font-medium focus:ring-2 focus:ring-primary appearance-none shadow-sm"
-              >
-                {allOptions.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-outline w-5 h-5" />
-            </div>
-          </div>
-
-          {selectedGame === 'Custom Activity...' && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-2"
-            >
-              <label className="block text-sm font-bold text-on-surface-variant px-1">Game Name</label>
-              <input 
-                type="text"
-                required
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Enter game name"
-                className="w-full h-14 px-4 bg-surface-container-lowest border-none rounded-default text-on-surface font-medium focus:ring-2 focus:ring-primary shadow-sm"
-              />
-            </motion.div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="block text-sm font-bold text-on-surface-variant px-1">Duration (min)</label>
-              <div className="relative">
-                <input 
-                  type="number"
-                  required
-                  min="1"
-                  value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
-                  placeholder="Enter minutes"
-                  className="w-full h-14 pl-4 pr-10 bg-surface-container-lowest border-none rounded-default text-on-surface font-medium focus:ring-2 focus:ring-primary shadow-sm"
-                />
-                <Timer className="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant w-4 h-4" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm font-bold text-on-surface-variant px-1">Ratio (pts/min)</label>
-              <div className="relative">
-                <input 
-                  type="number"
-                  required
-                  min="1"
-                  step="1"
-                  value={ratio}
-                  onChange={(e) => setRatio(Math.round(Number(e.target.value)))}
-                  className="w-full h-14 pl-4 pr-10 bg-surface-container-lowest border-none rounded-default text-on-surface font-medium focus:ring-2 focus:ring-primary shadow-sm"
-                />
-                <Coins className="absolute right-3 top-1/2 -translate-y-1/2 text-outline-variant w-4 h-4" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-secondary/5 p-4 rounded-xl border border-secondary/10 flex justify-between items-center">
-            <span className="text-sm font-bold text-on-surface-variant">Cost to Play</span>
-            <span className="text-2xl font-black text-secondary">{Math.round(duration * ratio)}</span>
-          </div>
-
-          <button 
-            type="submit"
-            disabled={loading}
-            className="w-full h-14 bg-gradient-to-b from-primary-container to-primary text-on-primary font-bold text-lg rounded-xl shadow-lg active:scale-95 transition-all flex items-center justify-center gap-2 disabled:opacity-50"
+      <form
+        onSubmit={submit}
+        className="rounded-3xl bg-surface-container-low p-5 space-y-5"
+      >
+        {error && (
+          <p role="alert" className="bg-red-50 text-red-800 rounded-xl p-3">
+            {error}
+          </p>
+        )}
+        <label className="mission-label">
+          My reward
+          <select
+            disabled={busy}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            className="mission-input"
           >
-            <Plus className="w-6 h-6" />
-            {loading ? 'Processing...' : 'Spend Points'}
-          </button>
-        </form>
-      </section>
-
-      {/* Recent Spend Section - Table Format */}
-      <section className="space-y-4 pb-8">
-        <div className="flex justify-between items-end px-2">
-          <div className="flex items-center gap-2">
-            <Clock3 className="w-5 h-5 text-secondary" />
-            <h2 className="text-xl font-bold text-on-background font-headline">Recent Spending</h2>
-          </div>
+            {[
+              ...new Set([
+                ...defaults,
+                ...(user?.custom_play_activities || []),
+              ]),
+            ].map((s) => (
+              <option key={s}>{s}</option>
+            ))}
+          </select>
+        </label>
+        <label className="mission-label">
+          Minutes
+          <input
+            type="number"
+            required
+            min={1}
+            max={120}
+            step={1}
+            disabled={busy}
+            value={minutes}
+            onChange={(e) => setMinutes(Number(e.target.value))}
+            className="mission-input"
+          />
+        </label>
+        <div className="flex justify-between font-bold">
+          <span>Cost</span>
+          <span>{cost} coins</span>
         </div>
-        
-        <div className="bg-surface-container-low rounded-lg overflow-hidden p-1 shadow-sm">
-          <div className="bg-surface-container-lowest rounded-default overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-surface-container text-on-surface-variant text-[11px] uppercase tracking-wider font-bold">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Game</th>
-                  <th className="px-4 py-3 text-right">Points</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-blue-100/50">
-                {recentPlays.map((activity) => (
-                  <tr key={activity._id} className="hover:bg-blue-50/50 transition-colors">
-                    <td className="px-4 py-4 text-xs font-medium">
-                      {new Date(activity.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-bold text-on-surface">{activity.activityName}</span>
-                        <span className="text-[10px] text-on-surface-variant font-medium">
-                          {activity.durationMinutes} mins
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <span className="text-xs font-bold text-error">
-                        {Math.round(activity.pointsImpact)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {recentPlays.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-on-surface-variant text-sm">
-                      No games played yet. Time for some fun!
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+        <p className="text-xs text-on-surface-variant">
+          Your parent sets the price: {user?.min_per_coin_ratio || 1} coin(s)
+          per minute. Spending does not reduce surprise progress.
+        </p>
+        <button
+          disabled={busy || cost > (user?.total_coins || 0)}
+          className="mission-button w-full"
+        >
+          {busy
+            ? "Saving…"
+            : cost > (user?.total_coins || 0)
+              ? "Complete a mission to earn more"
+              : "Use my coins"}
+        </button>
+        <p className="text-xs">
+          This records your reward. Ask your parent for access to the game or
+          video.
+        </p>
+      </form>
+      {recent.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="font-bold">Recent rewards</h3>
+          {recent.map((a) => (
+            <div
+              key={a._id}
+              className="rounded-xl bg-white border border-orange-100 p-4 flex justify-between gap-3 text-sm"
+            >
+              <div>
+                <strong>{a.activityName}</strong>
+                <p>
+                  {a.durationMinutes} minutes ·{" "}
+                  {new Date(a.createdAt).toLocaleDateString()}
+                </p>
+              </div>
+              <strong>{a.pointsImpact}</strong>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }
