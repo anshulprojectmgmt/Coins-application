@@ -9,9 +9,23 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 import sharp from "sharp";
+import mongoose from "mongoose";
 import { ApiError } from "./rules.ts";
 
 export const RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+export function evidenceStorage() {
+  const storage = process.env.EVIDENCE_STORAGE || "filesystem";
+  if (!["filesystem", "mongodb"].includes(storage))
+    throw new Error("EVIDENCE_STORAGE must be filesystem or mongodb.");
+  return storage;
+}
+function bucket() {
+  if (!mongoose.connection.db)
+    throw new Error("Connect to MongoDB before accessing evidence.");
+  return new mongoose.mongo.GridFSBucket(mongoose.connection.db, {
+    bucketName: "habit_evidence",
+  });
+}
 export const evidenceDirectory = () => {
   const directory = path.resolve(
     process.env.EVIDENCE_DIR || "./private-evidence",
@@ -73,15 +87,38 @@ export async function normalizePhoto(value: unknown) {
 }
 
 export async function savePhotos(photos: { buffer: Buffer }[]) {
-  await mkdir(evidenceDirectory(), { recursive: true, mode: 0o700 });
+  const storage = evidenceStorage();
+  if (storage === "filesystem")
+    await mkdir(evidenceDirectory(), { recursive: true, mode: 0o700 });
   const saved: string[] = [];
   try {
     for (const photo of photos) {
       const id = `${randomUUID()}.jpg`;
-      await writeFile(path.join(evidenceDirectory(), id), photo.buffer, {
-        mode: 0o600,
-        flag: "wx",
-      });
+      if (storage === "mongodb") {
+        const stream = bucket().openUploadStream(id, {
+          metadata: {
+            expiresAt: new Date(Date.now() + RETENTION_MS),
+            contentType: "image/jpeg",
+          },
+        });
+        try {
+          await new Promise<void>((resolve, reject) => {
+            stream.on("error", reject);
+            stream.on("finish", resolve);
+            stream.end(photo.buffer);
+          });
+        } catch (error) {
+          await bucket()
+            .delete(stream.id)
+            .catch(() => {});
+          throw error;
+        }
+      } else {
+        await writeFile(path.join(evidenceDirectory(), id), photo.buffer, {
+          mode: 0o600,
+          flag: "wx",
+        });
+      }
       saved.push(id);
     }
     return saved;
@@ -92,6 +129,13 @@ export async function savePhotos(photos: { buffer: Buffer }[]) {
 }
 
 export async function deletePhotos(ids: string[]) {
+  if (evidenceStorage() === "mongodb") {
+    for (const id of ids) {
+      for await (const file of bucket().find({ filename: id }))
+        await bucket().delete(file._id);
+    }
+    return;
+  }
   await Promise.all(
     ids.map((id) =>
       unlink(path.join(evidenceDirectory(), path.basename(id))).catch(() => {}),
@@ -100,11 +144,46 @@ export async function deletePhotos(ids: string[]) {
 }
 
 export async function readPhoto(id: string) {
+  if (evidenceStorage() === "mongodb") {
+    const file = await bucket()
+      .find({ filename: id, "metadata.expiresAt": { $gt: new Date() } })
+      .next();
+    if (!file) throw new Error("Photo unavailable.");
+    const chunks: Buffer[] = [];
+    for await (const chunk of bucket().openDownloadStream(file._id))
+      chunks.push(Buffer.from(chunk));
+    return Buffer.concat(chunks);
+  }
   return readFile(path.join(evidenceDirectory(), path.basename(id)));
 }
 
 // Runs on startup and hourly, including orphaned files left by an interrupted request.
 export async function purgeExpiredPhotos() {
+  if (evidenceStorage() === "mongodb") {
+    const cutoff = new Date(Date.now() - RETENTION_MS);
+    for await (const file of bucket().find({
+      $or: [
+        { "metadata.expiresAt": { $lte: new Date() } },
+        { uploadDate: { $lte: cutoff } },
+      ],
+    })) {
+      await bucket().delete(file._id);
+    }
+    // Interrupted GridFS uploads can leave chunks without a completed file record.
+    const chunks = mongoose.connection.db!.collection("habit_evidence.chunks");
+    const oldId = mongoose.mongo.ObjectId.createFromTime(
+      Math.floor(cutoff.getTime() / 1000),
+    );
+    const orphanIds = chunks.aggregate([
+      { $match: { files_id: { $lt: oldId } } },
+      { $group: { _id: "$files_id" } },
+    ]);
+    for await (const row of orphanIds) {
+      if (!(await bucket().find({ _id: row._id }).hasNext()))
+        await chunks.deleteMany({ files_id: row._id });
+    }
+    return;
+  }
   await mkdir(evidenceDirectory(), { recursive: true, mode: 0o700 });
   for (const id of await readdir(evidenceDirectory())) {
     const file = path.join(evidenceDirectory(), id);

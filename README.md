@@ -34,7 +34,8 @@ Required configuration:
 | --- | --- |
 | `MONGODB_URI` | MongoDB Atlas or another replica set. Transactions are required to award coins atomically. A standalone MongoDB server is insufficient. |
 | `JWT_SECRET` | A private random secret, at least 32 characters. Generate with `openssl rand -hex 32`. |
-| `EVIDENCE_DIR` | Private persistent storage outside `public/` and `dist/`. Defaults to `./private-evidence`. |
+| `EVIDENCE_STORAGE` | `filesystem` (default) or `mongodb` (private GridFS storage in the same database). Use `mongodb` on Render free services. |
+| `EVIDENCE_DIR` | With filesystem storage, private persistent storage outside `public/` and `dist/`. Defaults to `./private-evidence`. |
 | `OPENAI_API_KEY` | Optional server-only key for AI checks. Without it, submissions go to parent review. |
 | `OPENAI_VISION_MODEL` | Vision model supporting Chat Completions, image inputs and structured JSON output. Defaults to `gpt-4.1-mini`. |
 | `TRUST_PROXY_HOPS` | Defaults to `0`. Set to the exact number of trusted reverse proxies for correct IP rate limiting; do not enable it on an untrusted/direct network path. |
@@ -57,7 +58,7 @@ Parent controls support:
 - Reviewing unclear submissions and approving or declining them.
 - Configuring timed rewards, coin prices, family time zone, secret surprise and milestone goal.
 - A seven-day summary of completed missions, earned coins and pending checks.
-- Photo and AI consent controls. Revoking photo consent deletes existing local evidence and blocks new submissions.
+- Photo and AI consent controls. Revoking photo consent deletes existing evidence and blocks new submissions.
 
 Parent access uses a separate server-verified password and a scoped token that expires after 15 minutes. The UI keeps this token only in memory and locks when refreshed or when leaving the parent screens. Children cannot change points, reward prices or mission rules through the API.
 
@@ -74,9 +75,9 @@ AI is not proof of identity, authorship or elapsed time. Keep automatic missions
 
 ## Photos, rewards and surprises
 
-Children can take/select JPG, PNG or WebP photos, up to 4 MB each. Images are decoded, resized and re-encoded to remove EXIF/location metadata. Faces are unnecessary. Evidence is available only through authenticated parent endpoints for the same account, never through a public media URL. Local evidence access expires after seven days; startup and hourly cleanup remove expired files. If the server was stopped, cleanup runs when it next starts. Orphaned uploads are included in cleanup. Configure any backups with the same retention policy.
+Children can take/select JPG, PNG or WebP photos, up to 4 MB each. Images are decoded, resized and re-encoded to remove EXIF/location metadata. Faces are unnecessary. Evidence is available only through authenticated parent endpoints for the same account, never through a public media URL. Evidence access expires after seven days; startup and hourly cleanup remove expired files. With `EVIDENCE_STORAGE=mongodb`, photos and their chunks are stored privately in MongoDB GridFS, including cleanup of interrupted uploads. This survives app restarts and deployments without a filesystem disk. Database storage and transfer quotas still apply. If the server was stopped, cleanup runs when it next starts. Orphaned uploads are included in cleanup. Configure any backups with the same retention policy.
 
-Mission history and normalized photo hashes remain after photo deletion for activity history and duplicate prevention. Images sent for AI checks are also subject to the AI provider's data handling; local cleanup cannot delete provider-side records. Parent consent is required before sending them.
+Mission history and normalized photo hashes remain after photo deletion for activity history and duplicate prevention. Images sent for AI checks are also subject to the AI provider's data handling; app cleanup cannot delete provider-side records. Parent consent is required before sending them.
 
 Coin awards, activity ledger entries and surprise progress are written in one MongoDB transaction. Unique indexes prevent more than one submission per mission per family day and more than one ledger award per submission. Existing submissions preserve the reward and criteria from the time they were submitted. A deliberate retake uses the current mission rules, displayed on the mission card.
 
@@ -92,7 +93,15 @@ npm run build
 NODE_ENV=production npm start
 ```
 
-Serve the app over HTTPS. Keep `EVIDENCE_DIR` on a private persistent volume, and run a single application instance with that volume in this version. For multiple replicas or ephemeral/serverless hosting, first replace the filesystem evidence adapter with private object storage, object lifecycle deletion, and a shared rate-limit store. No automatic deployment or database credential changes are performed by this implementation.
+Serve the app over HTTPS. Use `EVIDENCE_STORAGE=mongodb` on ephemeral hosting, or keep `EVIDENCE_DIR` on a private persistent volume with one application instance. Multiple application replicas additionally require a shared rate-limit store. No database credential changes are performed by the app.
+
+## Deploy on Render
+
+`render.yaml` defines a free Node web service using the tested `feature/child-missions` branch. Build with `npm ci --include=dev && npm run build`; start with `npm start`; health check `/healthz`. Set `NODE_ENV=production`, `TRUST_PROXY_HOPS=1`, and `EVIDENCE_STORAGE=mongodb`. The Blueprint generates a private JWT secret.
+
+Set a fresh `MONGODB_URI` securely in the Render Dashboard. It must point to an Atlas database/replica set with read/write and index permissions. Allow the service's outbound addresses in Atlas. Do not reuse the credential formerly committed to GitHub. Add `OPENAI_API_KEY` in the same Dashboard only if you want AI checks; without it, parent review works.
+
+No Render disk or paid service is required for this configuration. A free web service can sleep when idle, so the first request may take a while. Cleanup resumes when the service wakes; expired photos stay inaccessible. MongoDB storage quotas include photos, and backups may retain deleted files according to your database backup policy. Existing filesystem uploads are not migrated automatically when switching storage modes.
 
 ## Verification
 

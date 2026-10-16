@@ -1,0 +1,28 @@
+# Uses the tested feature branch without merging or changing the existing app.
+services:
+  - type: web
+    name: habitheroaj
+    runtime: node
+    repo: https://github.com/anshulprojectmgmt/Coins-application
+    branch: feature/child-missions
+    plan: free
+    numInstances: 1
+    buildCommand: npm ci --include=dev && npm run build
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: 'off'
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false
+      - key: EVIDENCE_STORAGE
+        value: mongodb
+      - key: TRUST_PROXY_HOPS
+        value: "1"
+      - key: OPENAI_VISION_MODEL
+        value: gpt-4.1-mini

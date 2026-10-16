@@ -139,6 +139,13 @@ export function createApp(options: {
     throw new Error("TRUST_PROXY_HOPS must be a whole number from 0 to 5.");
   if (proxyHops) app.set("trust proxy", proxyHops);
   app.disable("x-powered-by");
+  app.get("/healthz", (_req, res) =>
+    res
+      .status(mongoose.connection.readyState === 1 ? 200 : 503)
+      .json({
+        status: mongoose.connection.readyState === 1 ? "ok" : "unavailable",
+      }),
+  );
   app.use("/api", (_req, res, next) => {
     res.setHeader("Cache-Control", "no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
@@ -242,12 +249,10 @@ export function createApp(options: {
           { session, ordered: true },
         );
       });
-      res
-        .status(201)
-        .json({
-          user: serializeUser(user),
-          token: tokenFor(user._id, "child"),
-        });
+      res.status(201).json({
+        user: serializeUser(user),
+        token: tokenFor(user._id, "child"),
+      });
     }),
   );
   app.post(
@@ -505,14 +510,12 @@ export function createApp(options: {
           400,
           "You can have up to 20 missions. Edit an existing mission instead.",
         );
-      res
-        .status(201)
-        .json(
-          await Mission.create({
-            ...missionRules(req.body),
-            userId: req.user._id,
-          }),
-        );
+      res.status(201).json(
+        await Mission.create({
+          ...missionRules(req.body),
+          userId: req.user._id,
+        }),
+      );
     }),
   );
   app.patch(
@@ -712,16 +715,12 @@ export function createApp(options: {
             },
           },
         );
-      res
-        .status(201)
-        .json({
-          submission: publicSubmission(
-            await Submission.findById(submission._id),
-          ),
-          user: serializeUser(
-            await User.findById(req.user._id).select("+parent_password"),
-          ),
-        });
+      res.status(201).json({
+        submission: publicSubmission(await Submission.findById(submission._id)),
+        user: serializeUser(
+          await User.findById(req.user._id).select("+parent_password"),
+        ),
+      });
     }),
   );
   app.get(
