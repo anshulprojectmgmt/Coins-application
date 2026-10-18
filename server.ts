@@ -6,6 +6,7 @@ import mongoose from "mongoose";
 import { createServer as createViteServer } from "vite";
 import { createApp } from "./src/server/app.ts";
 import { purgeExpiredPhotos } from "./src/server/evidence.ts";
+import { mongoConnectionConfig } from "./src/server/mongo-config.ts";
 
 const secret = process.env.JWT_SECRET;
 if (
@@ -15,13 +16,8 @@ if (
   throw new Error(
     "Set JWT_SECRET to a random secret of at least 32 characters.",
   );
-if (!process.env.MONGODB_URI)
-  throw new Error(
-    "Set MONGODB_URI to a MongoDB replica set (MongoDB Atlas is supported).",
-  );
-await mongoose.connect(process.env.MONGODB_URI, {
-  serverSelectionTimeoutMS: 10000,
-});
+const mongo = mongoConnectionConfig(process.env);
+await mongoose.connect(mongo.uri, mongo.options);
 await Promise.all(Object.values(mongoose.models).map((model) => model.init()));
 const app = createApp({ jwtSecret: secret || randomBytes(32).toString("hex") });
 await purgeExpiredPhotos();

@@ -33,6 +33,8 @@ Required configuration:
 | Variable | Purpose |
 | --- | --- |
 | `MONGODB_URI` | MongoDB Atlas or another replica set. Transactions are required to award coins atomically. A standalone MongoDB server is insufficient. |
+| `MONGODB_USERNAME`, `MONGODB_PASSWORD` | Optional separate credentials. Set both and enter the password literally (no URL encoding). The URI can then contain only the cluster host and database. |
+| `MONGODB_AUTH_SOURCE` | Authentication database for separate credentials; defaults to `admin` for Atlas. |
 | `JWT_SECRET` | A private random secret, at least 32 characters. Generate with `openssl rand -hex 32`. |
 | `EVIDENCE_STORAGE` | `filesystem` (default) or `mongodb` (private GridFS storage in the same database). Use `mongodb` on Render free services. |
 | `EVIDENCE_DIR` | With filesystem storage, private persistent storage outside `public/` and `dist/`. Defaults to `./private-evidence`. |
@@ -99,7 +101,7 @@ Serve the app over HTTPS. Use `EVIDENCE_STORAGE=mongodb` on ephemeral hosting, o
 
 `render.yaml` defines a free Node web service using the tested `feature/child-missions` branch. Build with `npm ci --include=dev && npm run build`; start with `npm start`; health check `/healthz`. Set `NODE_ENV=production`, `TRUST_PROXY_HOPS=1`, and `EVIDENCE_STORAGE=mongodb`. The Blueprint generates a private JWT secret.
 
-Set a fresh `MONGODB_URI` securely in the Render Dashboard. It must point to an Atlas database/replica set with read/write and index permissions. Allow the service's outbound addresses in Atlas. Do not reuse the credential formerly committed to GitHub. Add `OPENAI_API_KEY` in the same Dashboard only if you want AI checks; without it, parent review works.
+Set a fresh `MONGODB_URI` securely in the Render Dashboard. For easier setup, use a credential-free cluster URI, and put the database username and literal password in separate `MONGODB_USERNAME` and `MONGODB_PASSWORD` variables. This avoids manual URL-encoding mistakes. It must point to an Atlas database/replica set with read/write and index permissions. Allow the service's outbound addresses in Atlas. Do not reuse the credential formerly committed to GitHub. Add `OPENAI_API_KEY` in the same Dashboard only if you want AI checks; without it, parent review works.
 
 No Render disk or paid service is required for this configuration. A free web service can sleep when idle, so the first request may take a while. Cleanup resumes when the service wakes; expired photos stay inaccessible. MongoDB storage quotas include photos, and backups may retain deleted files according to your database backup policy. Existing filesystem uploads are not migrated automatically when switching storage modes.
 
