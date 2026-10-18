@@ -22,4 +22,4 @@ const userSchema = new mongoose.Schema({
 export const User: mongoose.Model<mongoose.InferSchemaType<typeof userSchema>> =
   (mongoose.models.User as
     | mongoose.Model<mongoose.InferSchemaType<typeof userSchema>>
-    | undefined) || mongoose.model("User", userSchema);
+    | undefined) || mongoose.model<mongoose.InferSchemaType<typeof userSchema>>("User", userSchema);

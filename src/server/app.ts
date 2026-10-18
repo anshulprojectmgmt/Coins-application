@@ -647,7 +647,7 @@ export function createApp(options: {
             instructions: m.instructions,
             points: m.points,
             proof: m.proof,
-            status: "checking",
+            status: "checking" as const,
             message: "Checking your photo…",
             evidence,
             evidenceExpiresAt: new Date(Date.now() + RETENTION_MS),

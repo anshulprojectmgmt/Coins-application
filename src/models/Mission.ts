@@ -25,7 +25,7 @@ export const Mission: mongoose.Model<
     | mongoose.Model<mongoose.InferSchemaType<typeof missionSchema>>
     | undefined) || mongoose.model("Mission", missionSchema);
 
-export const starterMissions = [
+export const starterMissions: { title: string; instructions: string; points: number; proof: 'photo' | 'before_after' }[] = [
   {
     title: "Put away my toys",
     instructions:
