@@ -1,4 +1,4 @@
-import React, { useState, useContext } from "react";
+import React, { useState, useContext, useEffect } from "react";
 import { Outlet, Link, useLocation } from "react-router-dom";
 import { LayoutDashboard, Gamepad2, Stars, Gift, Settings } from "lucide-react";
 import { AuthContext } from "../App.tsx";
@@ -7,13 +7,14 @@ import { cn } from "../lib/utils.ts";
 
 export function Layout() {
   const location = useLocation();
-  const { user } = useContext(AuthContext)!;
+  const { user, lockParent } = useContext(AuthContext)!;
+  useEffect(() => { if (location.pathname !== '/parent') lockParent(); }, [location.pathname]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
 
   const navItems = [
     { path: "/", label: "Dashboard", icon: LayoutDashboard },
     { path: "/spend", label: "Spend", icon: Gamepad2 },
-    { path: "/earn", label: "Earn", icon: Stars },
+    { path: "/earn", label: "Missions", icon: Stars },
     { path: "/surprise", label: "Surprise", icon: Gift },
   ];
 
@@ -35,6 +36,7 @@ export function Layout() {
             </h1>
           </div>
           <button
+            aria-label="Open settings"
             onClick={() => setIsSettingsOpen(true)}
             className="flex items-center justify-center text-primary hover:scale-105 active:scale-95 transition-all"
           >

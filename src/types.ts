@@ -10,6 +10,10 @@ export interface User {
   surprise_reward_name?: string;
   surprise_cycle_start_points?: number;
   surprise_cycle_points?: number;
+  parent_setup?: boolean;
+  photo_consent?: boolean;
+  ai_consent?: boolean;
+  timezone?: string;
 }
 
 export interface Activity {
@@ -25,4 +29,32 @@ export interface Activity {
 export interface AuthResponse {
   user: User;
   token: string;
+}
+
+export interface Submission {
+  _id: string;
+  missionId: string;
+  title: string;
+  points: number;
+  day: string;
+  status: 'checking' | 'pending' | 'approved' | 'retry' | 'rejected';
+  message: string;
+  attempts: number;
+  evidenceCount: number;
+  evidenceExpiresAt: string;
+  createdAt: string;
+  updatedAt: string;
+  instructions?: string;
+  proof?: string;
+}
+
+export interface Mission {
+  _id: string;
+  title: string;
+  instructions: string;
+  points: number;
+  proof: 'photo' | 'before_after';
+  verification: 'parent' | 'ai';
+  active: boolean;
+  submission?: Submission;
 }

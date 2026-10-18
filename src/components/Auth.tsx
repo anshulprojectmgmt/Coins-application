@@ -6,6 +6,8 @@ export function Auth() {
   const [isLogin, setIsLogin] = useState(true);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [parentPassword, setParentPassword] = useState('');
+  const [photoConsent, setPhotoConsent] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
@@ -20,7 +22,7 @@ export function Auth() {
       const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, parentPassword, photoConsent, timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }),
       });
       const data = await res.json();
 
@@ -42,7 +44,7 @@ export function Auth() {
         <div className="text-center">
           <h1 className="text-4xl font-black text-primary font-headline tracking-tight">Habit Hero</h1>
           <p className="mt-2 text-on-surface-variant font-medium">
-            {isLogin ? 'Welcome back, hero!' : 'Start your adventure today!'}
+            {isLogin ? 'Welcome back, hero!' : 'Parents: set up your child’s adventure.'}
           </p>
         </div>
 
@@ -74,9 +76,17 @@ export function Auth() {
               onChange={(e) => setPassword(e.target.value)}
               className="w-full h-14 px-4 bg-surface-container-lowest border-none rounded-default focus:ring-2 focus:ring-primary font-medium shadow-sm"
               placeholder="Enter password"
+              minLength={isLogin ? 1 : 8}
+              maxLength={72}
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
             />
           </div>
 
+          {!isLogin && <>
+            <p className="text-sm">Your child uses the password above to sign in. Keep the parent password below private.</p>
+            <label className="mission-label">Parent password<input type="password" required minLength={8} maxLength={72} autoComplete="new-password" value={parentPassword} onChange={e => setParentPassword(e.target.value)} className="mission-input" /></label>
+            <label className="flex items-start gap-3 text-sm"><input type="checkbox" required checked={photoConsent} onChange={e => setPhotoConsent(e.target.checked)} className="mt-1" /><span>I am the parent or guardian and allow private task photos, stored for up to 7 days. Faces are not required. AI sharing stays off until I enable it.</span></label>
+          </>}
           <button
             type="submit"
             disabled={loading}

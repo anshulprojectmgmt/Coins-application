@@ -1,276 +1,326 @@
-import React, { useState, useEffect, useContext } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { Stars, PlusCircle, ChevronDown, Clock3, Timer, Coins } from 'lucide-react';
-import { motion } from 'motion/react';
-import confetti from 'canvas-confetti';
-import { AuthContext } from '../App.tsx';
-import { Activity } from '../types.ts';
-import { cn } from '../lib/utils.ts';
+import React, { useContext, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import {
-  readActivityFormPreferences,
-  saveActivityFormPreferences
-} from '../lib/activityFormPreferences.ts';
+  Camera,
+  CheckCircle2,
+  Clock3,
+  Sparkles,
+  RefreshCw,
+} from "lucide-react";
+import confetti from "canvas-confetti";
+import { AuthContext } from "../App.tsx";
+import { Mission, Submission } from "../types.ts";
+import { api, photoData } from "../lib/api.ts";
 
-const DEFAULT_EARN_OPTIONS = [
-  'Reading Time',
-  'Math Exercises',
-  'Piano Practice',
-  'Cleaned Room',
-  'Physical Play'
-];
-
-const EARN_FORM_DEFAULTS = {
-  duration: 20,
-  ratio: 1,
+const labels = {
+  checking: "Checking…",
+  pending: "Parent check",
+  approved: "Coins earned!",
+  retry: "Try another photo",
+  rejected: "Try again tomorrow",
 };
 
 export function Earn() {
   const { user, token, updateUser } = useContext(AuthContext)!;
-  const navigate = useNavigate();
-  const userId = user?._id || 'guest';
-  const [selectedActivity, setSelectedActivity] = useState(DEFAULT_EARN_OPTIONS[0]);
-  const [customName, setCustomName] = useState('');
-  const [duration, setDuration] = useState(() => (
-    readActivityFormPreferences('earn', userId, EARN_FORM_DEFAULTS).duration
-  ));
-  const [ratio, setRatio] = useState(() => (
-    readActivityFormPreferences('earn', userId, EARN_FORM_DEFAULTS).ratio
-  ));
-  const [loading, setLoading] = useState(false);
-  const [todayEarnings, setTodayEarnings] = useState(0);
-  const [recentEarnings, setRecentEarnings] = useState<Activity[]>([]);
-
-  const allOptions = [...DEFAULT_EARN_OPTIONS, ...(user?.custom_earn_activities || []), 'Custom Activity...'];
-
-  useEffect(() => {
-    fetch('/api/activities/today-earnings', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => setTodayEarnings(data.earnings || 0));
-
-    fetch('/api/activities/recent/earn', {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((res) => res.json())
-      .then((data) => setRecentEarnings(data));
-  }, [token]);
-
-  useEffect(() => {
-    saveActivityFormPreferences('earn', userId, { duration, ratio });
-  }, [duration, ratio, userId]);
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setLoading(true);
-
-    const isCustomInput = selectedActivity === 'Custom Activity...';
-    const activityName = isCustomInput ? customName : selectedActivity;
-    const pointsImpact = Math.round(duration * ratio);
-    const previousTotalCoins = Math.round(user?.total_coins || 0);
-
+  const [missions, setMissions] = useState<Mission[]>([]);
+  const [history, setHistory] = useState<Submission[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [photos, setPhotos] = useState<string[]>([]);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  async function load() {
     try {
-      const res = await fetch('/api/activities', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          type: 'earn',
-          activityName,
-          durationMinutes: duration,
-          pointsImpact,
-          isCustom: isCustomInput
-        }),
-      });
-
-      if (res.ok) {
-        confetti({
-          particleCount: 150,
-          spread: 70,
-          origin: { y: 0.6 },
-          colors: ['#fd9000', '#8a4c00', '#a7295a']
-        });
-        
-        // Refetch profile to get updated coins and custom activities
-        const profileRes = await fetch('/api/profile', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const profileData = await profileRes.json();
-        updateUser(profileData);
-        
-        setTodayEarnings(prev => prev + pointsImpact);
-        setTimeout(() => navigate('/', {
-          state: {
-            pointsDelta: pointsImpact,
-            previousTotalCoins,
-            animationKey: Date.now(),
-          },
-        }), 1500);
-      }
-    } catch (err) {
-      console.error(err);
+      const [data, rows, profile] = await Promise.all([
+        api("/api/missions", token),
+        api<Submission[]>("/api/submissions", token),
+        api("/api/profile", token),
+      ]);
+      setMissions(data.missions);
+      setHistory(rows);
+      updateUser(profile);
+    } catch (e) {
+      setError((e as Error).message);
     } finally {
       setLoading(false);
     }
-  };
-
+  }
+  useEffect(() => {
+    void load();
+    const timer = setInterval(() => {
+      if (!document.hidden) void load();
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [token]);
+  async function selectPhoto(file: File | undefined, index: number) {
+    if (!file) return;
+    setError("");
+    try {
+      const data = await photoData(file);
+      setPhotos((old) => {
+        const next = [...old];
+        next[index] = data;
+        return next;
+      });
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+  async function submit(mission: Mission) {
+    if (busy) return;
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      const result = await api(
+        `/api/missions/${mission._id}/submissions`,
+        token,
+        { method: "POST", body: JSON.stringify({ photos }) },
+      );
+      updateUser(result.user);
+      setNotice(
+        result.submission.status === "approved"
+          ? `You earned ${result.submission.points} coins!`
+          : result.submission.message,
+      );
+      if (result.submission.status === "approved")
+        confetti({
+          particleCount: 90,
+          spread: 65,
+          colors: ["#fd9000", "#a7295a", "#43a675"],
+        });
+      setSelected(null);
+      setPhotos([]);
+      await load();
+    } catch (e) {
+      setError((e as Error).message);
+      await load();
+    } finally {
+      setBusy(false);
+    }
+  }
+  const earned = missions
+    .filter((m) => m.submission?.status === "approved")
+    .reduce((sum, m) => sum + m.submission.points, 0);
   return (
-    <div className="pt-8 space-y-8">
-      {/* Hero Section */}
-      <section className="relative overflow-hidden bg-primary rounded-xl p-8 text-on-primary shadow-lg">
-        <div className="relative z-10">
-          <p className="font-label text-sm uppercase tracking-widest opacity-80 mb-2">Today Earnings</p>
-          <div className="flex items-baseline gap-2">
-            <h2 className="font-headline text-5xl font-extrabold">
-              {todayEarnings}
-            </h2>
-            <span className="text-xl font-bold opacity-90">Points</span>
-          </div>
+    <div className="pt-6 space-y-6">
+      <section className="rounded-3xl bg-primary text-on-primary p-6 shadow-lg">
+        <Sparkles className="mb-3" />
+        <p className="text-sm font-bold uppercase tracking-widest opacity-80">
+          A little effort. A big adventure.
+        </p>
+        <h2 className="font-headline text-3xl font-black mt-2">
+          Today’s missions
+        </h2>
+        <p className="mt-3">
+          Complete a mission, share a photo, grow your coin chest.
+        </p>
+        <div className="mt-5 text-2xl font-black">
+          +{earned}{" "}
+          <span className="text-sm font-medium">coins earned today</span>
         </div>
-        <div className="absolute -right-4 -bottom-4 w-32 h-32 bg-primary-container rounded-full opacity-20 blur-2xl"></div>
-        <Stars className="absolute right-4 top-4 w-16 h-16 opacity-20 fill-current" />
       </section>
-
-      {/* Form */}
-      <section className="bg-surface-container-low rounded-lg p-6 shadow-sm">
-        <h3 className="font-headline text-xl font-bold mb-6 text-on-background">Log New Activity</h3>
-        <form onSubmit={handleSubmit} className="space-y-6">
-          <div className="space-y-2">
-            <label className="block text-sm font-semibold text-on-surface-variant ml-1">What did you do?</label>
-            <div className="relative">
-              <select 
-                value={selectedActivity}
-                onChange={(e) => setSelectedActivity(e.target.value)}
-                className="w-full h-14 pl-4 pr-10 bg-surface-container-lowest border-none rounded-default focus:ring-2 focus:ring-primary appearance-none font-medium shadow-sm"
-              >
-                {allOptions.map(opt => (
-                  <option key={opt} value={opt}>{opt}</option>
-                ))}
-              </select>
-              <ChevronDown className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-on-surface-variant w-5 h-5" />
-            </div>
-          </div>
-
-          {selectedActivity === 'Custom Activity...' && (
-            <motion.div 
-              initial={{ opacity: 0, y: -10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="space-y-2"
-            >
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">Activity Name</label>
-              <input 
-                type="text"
-                required
-                value={customName}
-                onChange={(e) => setCustomName(e.target.value)}
-                placeholder="Enter activity name"
-                className="w-full h-14 px-4 bg-surface-container-lowest border-none rounded-default focus:ring-2 focus:ring-primary font-medium shadow-sm"
-              />
-            </motion.div>
-          )}
-
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">Duration (min)</label>
-              <div className="relative">
-                <input 
-                  type="number"
-                  required
-                  min="1"
-                  value={duration}
-                  onChange={(e) => setDuration(Number(e.target.value))}
-                  className="w-full h-14 pl-4 pr-10 bg-surface-container-lowest border-none rounded-default focus:ring-2 focus:ring-primary font-medium shadow-sm"
-                />
-                <Timer className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/50 w-4 h-4" />
-              </div>
-            </div>
-            <div className="space-y-2">
-              <label className="block text-sm font-semibold text-on-surface-variant ml-1">Ratio (pts/min)</label>
-              <div className="relative">
-                <input 
-                  type="number"
-                  required
-                  min="1"
-                  step="1"
-                  value={ratio}
-                  onChange={(e) => setRatio(Math.round(Number(e.target.value)))}
-                  className="w-full h-14 pl-4 pr-10 bg-surface-container-lowest border-none rounded-default focus:ring-2 focus:ring-primary font-medium shadow-sm"
-                />
-                <Coins className="absolute right-3 top-1/2 -translate-y-1/2 text-on-surface-variant/50 w-4 h-4" />
-              </div>
-            </div>
-          </div>
-
-          <div className="bg-primary/5 p-4 rounded-xl border border-primary/10 flex justify-between items-center">
-            <span className="text-sm font-bold text-on-surface-variant">Estimated Points</span>
-            <span className="text-2xl font-black text-primary">{Math.round(duration * ratio)}</span>
-          </div>
-
-          <button 
-            type="submit"
-            disabled={loading}
-            className="w-full h-14 bg-primary text-on-primary font-bold rounded-xl flex items-center justify-center gap-2 hover:bg-primary-dim transition-all active:scale-95 shadow-md disabled:opacity-50"
+      {!user?.photo_consent && (
+        <div className="rounded-2xl bg-surface-container-low p-5 space-y-2">
+          <h3 className="font-bold">Let’s get ready!</h3>
+          <p>Ask a parent to set up your missions and allow private photos.</p>
+          <Link className="text-primary underline font-bold" to="/parent">
+            Parent setup
+          </Link>
+        </div>
+      )}
+      <p className="text-sm text-on-surface-variant">
+        Photograph your work, not your face. Keep names, school details and
+        other people out of the picture. Photos are private and deleted after 7
+        days.
+      </p>
+      {error && (
+        <div role="alert" className="rounded-xl bg-red-50 text-red-800 p-4">
+          {error}
+        </div>
+      )}
+      {notice && (
+        <div
+          role="status"
+          className="rounded-xl bg-green-50 text-green-800 p-4 font-bold"
+        >
+          {notice}
+        </div>
+      )}
+      <div className="flex justify-between items-center">
+        <h3 className="font-bold">One reward per mission each day</h3>
+        <button
+          type="button"
+          aria-label="Refresh missions"
+          onClick={() => void load()}
+          className="p-3 text-primary"
+        >
+          <RefreshCw size={18} />
+        </button>
+      </div>
+      {loading && <p role="status">Finding your missions…</p>}
+      {!loading && !missions.length && (
+        <p className="p-5 rounded-2xl bg-surface-container-low">
+          No active missions yet. Ask a parent to add one.
+        </p>
+      )}
+      {missions.map((mission, i) => {
+        const s = mission.submission;
+        const canSubmit = !s || s.status === "retry";
+        const count = mission.proof === "before_after" ? 2 : 1;
+        const open = selected === mission._id;
+        return (
+          <section
+            key={mission._id}
+            className="rounded-3xl border border-orange-100 bg-surface-container-lowest shadow-sm overflow-hidden"
           >
-            <PlusCircle className="w-5 h-5" />
-            {loading ? 'Adding...' : 'Add Points'}
-          </button>
-        </form>
-      </section>
-
-      {/* Recent Earnings Section - Table Format */}
-      <section className="space-y-4 pb-8">
-        <div className="flex justify-between items-end px-2">
-          <div className="flex items-center gap-2">
-            <Clock3 className="w-5 h-5 text-primary" />
-            <h2 className="text-xl font-bold text-on-background font-headline">Recent Earnings</h2>
-          </div>
-        </div>
-        
-        <div className="bg-surface-container-low rounded-lg overflow-hidden p-1 shadow-sm">
-          <div className="bg-surface-container-lowest rounded-default overflow-hidden">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-surface-container text-on-surface-variant text-[11px] uppercase tracking-wider font-bold">
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Activity</th>
-                  <th className="px-4 py-3 text-right">Points</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-orange-100/50">
-                {recentEarnings.map((activity) => (
-                  <tr key={activity._id} className="hover:bg-orange-50/50 transition-colors">
-                    <td className="px-4 py-4 text-xs font-medium">
-                      {new Date(activity.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
-                    </td>
-                    <td className="px-4 py-4">
-                      <div className="flex flex-col">
-                        <span className="text-sm font-bold text-on-surface">{activity.activityName}</span>
-                        <span className="text-[10px] text-on-surface-variant font-medium">
-                          {activity.durationMinutes} mins
-                        </span>
-                      </div>
-                    </td>
-                    <td className="px-4 py-4 text-right">
-                      <span className="text-xs font-bold text-tertiary">
-                        +{Math.round(activity.pointsImpact)}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-                {recentEarnings.length === 0 && (
-                  <tr>
-                    <td colSpan={3} className="px-4 py-8 text-center text-on-surface-variant text-sm">
-                      No earnings yet today. Let's get started!
-                    </td>
-                  </tr>
+            <div className="p-5 space-y-3">
+              <div className="flex gap-3 items-start">
+                <span className="bg-primary/10 text-primary rounded-2xl p-3 font-black">
+                  {String(i + 1).padStart(2, "0")}
+                </span>
+                <div className="flex-1">
+                  <h3 className="text-xl font-bold">{mission.title}</h3>
+                  <p className="text-sm font-bold text-primary">
+                    +{mission.points} coins
+                  </p>
+                </div>
+                {s?.status === "approved" && (
+                  <CheckCircle2 className="text-green-700" />
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
-      </section>
+              </div>
+              <p className="text-sm text-on-surface-variant leading-relaxed">
+                {mission.instructions}
+              </p>
+              {s && (
+                <div className="rounded-xl bg-background p-3 text-sm">
+                  <p className="font-bold flex items-center gap-2">
+                    <Clock3 size={16} />
+                    {labels[s.status]}
+                  </p>
+                  <p className="mt-1">{s.message}</p>
+                </div>
+              )}
+              {canSubmit && !open && (
+                <button
+                  type="button"
+                  disabled={!user?.photo_consent || busy}
+                  onClick={() => {
+                    setSelected(mission._id);
+                    setPhotos([]);
+                    setError("");
+                  }}
+                  className="mission-button w-full"
+                >
+                  <Camera size={18} />
+                  {s ? "Try again" : "Start mission"}
+                </button>
+              )}
+            </div>
+            {open && (
+              <div className="p-5 pt-0 space-y-4">
+                {Array.from({ length: count }, (_, index) => (
+                  <label
+                    key={index}
+                    className="block rounded-2xl border-2 border-dashed border-primary/30 p-4 cursor-pointer"
+                  >
+                    <span className="font-bold text-sm flex items-center gap-2">
+                      <Camera size={18} />
+                      {count === 2
+                        ? index === 0
+                          ? "1. Before you start"
+                          : "2. After you finish"
+                        : "Show your completed work"}
+                    </span>
+                    <input
+                      type="file"
+                      aria-label={
+                        count === 2
+                          ? index === 0
+                            ? "Before photo"
+                            : "After photo"
+                          : "Mission photo"
+                      }
+                      accept="image/jpeg,image/png,image/webp"
+                      capture="environment"
+                      disabled={busy}
+                      onChange={(e) =>
+                        void selectPhoto(e.target.files?.[0], index)
+                      }
+                      className="block w-full text-sm mt-3"
+                    />
+                    {photos[index] && (
+                      <img
+                        src={photos[index]}
+                        alt={
+                          count === 2
+                            ? index === 0
+                              ? "Your before photo"
+                              : "Your after photo"
+                            : "Your mission photo"
+                        }
+                        className="mt-3 rounded-xl max-h-48 w-full object-contain bg-background"
+                      />
+                    )}
+                  </label>
+                ))}
+                <button
+                  type="button"
+                  disabled={
+                    busy ||
+                    Array.from({ length: count }, (_, i) => photos[i]).some(
+                      (p) => !p,
+                    )
+                  }
+                  onClick={() => void submit(mission)}
+                  className="mission-button w-full"
+                >
+                  {busy ? "Saving and checking…" : "I did it! Check my photos"}
+                </button>
+                {busy && (
+                  <p role="status" className="text-sm">
+                    This can take a little while. You can refresh later; your
+                    saved submission will still be here.
+                  </p>
+                )}
+                <button
+                  type="button"
+                  disabled={busy}
+                  className="w-full text-sm underline"
+                  onClick={() => {
+                    setSelected(null);
+                    setPhotos([]);
+                  }}
+                >
+                  Cancel
+                </button>
+              </div>
+            )}
+          </section>
+        );
+      })}
+      {history.length > 0 && (
+        <section className="space-y-3">
+          <h3 className="font-bold text-lg">My recent efforts</h3>
+          {history.slice(0, 8).map((s) => (
+            <div
+              key={s._id}
+              className="rounded-xl p-4 bg-surface-container-low text-sm"
+            >
+              <div className="flex justify-between gap-3">
+                <strong>{s.title}</strong>
+                <span>
+                  {s.status === "approved" ? `+${s.points}` : labels[s.status]}
+                </span>
+              </div>
+              <p className="text-on-surface-variant mt-1">
+                {s.day} · {s.message}
+              </p>
+            </div>
+          ))}
+        </section>
+      )}
     </div>
   );
 }
